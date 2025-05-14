@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Verileri Grafik</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+
+        .charts-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 35px;
+            flex-wrap: wrap;
+        }
+
+        .chart-container {
+            flex: 1 1 calc(33% - 20px);
+            max-width: 500px;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js";
+        import { getDatabase, ref, get, remove } from "https://www.gstatic.com/firebasejs/9.0.0/firebase-database.js";
+
+        // Firebase yapılandırması
+        const firebaseConfig = {
+          apiKey: "AIzaSyA1qPNaxUuLAv9HStzSrp11-Rd1EmsfFPI",
+          authDomain: "evdekisen2.firebaseapp.com",
+          databaseURL: "https://evdekisen2-default-rtdb.firebaseio.com",
+          projectId: "evdekisen2",
+          storageBucket: "evdekisen2.firebasestorage.app",
+          messagingSenderId: "372752549343",
+          appId: "1:372752549343:web:005b700c4e9b2224c1f06a"
+        };
+
+        // Firebase'i başlat
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        let allData = { sicaklik: [], nem: [], mikrofon: [] };
+
+        // Veriyi Firebase'den çekme
+        async function fetchData() {
+            const dhtRef = ref(database, 'sensorData/Dht');
+            const micRef = ref(database, 'sensorData/microphone');
+
+            try {
+                // DHT verileri (Sıcaklık ve Nem)
+                const dhtSnapshot = await get(dhtRef);
+                if (dhtSnapshot.exists()) {
+                    const data = dhtSnapshot.val();
+                    allData.sicaklik = Object.keys(data).map((timestamp) => {
+                        const date = new Date(timestamp);
+                        return {
+                            timestamp: date,
+                            value: data[timestamp].sicaklik
+                        };
+                    });
+                    allData.nem = Object.keys(data).map((timestamp) => {
+                        const date = new Date(timestamp);
+                        return {
+                            timestamp: date,
+                            value: data[timestamp].nem
+                        };
+                    });
+                    updateChart('sicaklik', allData.sicaklik);
+                    updateChart('nem', allData.nem);
+                } else {
+                    console.log("No data available for DHT");
+                }
+
+                // Mikrofon verileri
+                const micSnapshot = await get(micRef);
+                if (micSnapshot.exists()) {
+                    const data = micSnapshot.val();
+                    allData.mikrofon = Object.keys(data).map((timestamp) => {
+                        const date = new Date(timestamp);
+                        return {
+                            timestamp: date,
+                            value: data[timestamp] ? 1 : 0 // Mikrofon aktif mi değil mi kontrolü
+                        };
+                    });
+                } else {
+                    console.log("No data available for microphone");
+                }
+
+                // Eğer mikrofon verisi yoksa varsayılan bir veri ekle
+                if (allData.mikrofon.length === 0) {
+                    allData.mikrofon.push({
+                        timestamp: new Date(),
+                        value: 1 // Mikrofonun çalıştığını varsayan bir değer
+                    });
+                }
+
+                updateChart('mikrofon', allData.mikrofon);
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        fetchData();
+
+        const charts = { sicaklik: null, nem: null, mikrofon: null };
+
+        function updateChart(type, filteredData) {
+            const labels = filteredData.map(item => item.timestamp.toLocaleString());
+            const values = filteredData.map(item => item.value);
+            const ctx = document.getElementById(`${type}Chart`).getContext('2d');
+
+            if (charts[type]) {
+                charts[type].destroy(); // Eski grafiği yok et
+            }
+
+            const labelMap = {
+                sicaklik: 'Sıcaklık Değeri',
+                nem: 'Nem Değeri',
+                mikrofon: 'Mikrofon Aktivitesi'
+            };
+
+            charts[type] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: labelMap[type],
+                        data: values,
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Filtreleme fonksiyonu
+        window.filterData = function(period) {
+            const now = new Date();
+
+            Object.keys(allData).forEach(type => {
+                let filteredData = [];
+
+                if (period === 'day') {
+                    const oneDayAgo = new Date(now);
+                    oneDayAgo.setDate(now.getDate() - 1);
+                    filteredData = allData[type].filter(item => item.timestamp >= oneDayAgo);
+                } else if (period === 'week') {
+                    const oneWeekAgo = new Date(now);
+                    oneWeekAgo.setDate(now.getDate() - 7);
+                    filteredData = allData[type].filter(item => item.timestamp >= oneWeekAgo);
+                } else if (period === 'month') {
+                    const oneMonthAgo = new Date(now);
+                    oneMonthAgo.setMonth(now.getMonth() - 1);
+                    filteredData = allData[type].filter(item => item.timestamp >= oneMonthAgo);
+                } else if (period === 'all') {
+                    filteredData = allData[type]; // Tüm veriyi göster
+                }
+
+                updateChart(type, filteredData);
+            });
+        };
+
+        // Veri silme fonksiyonu
+        window.deleteData = async function() {
+            try {
+                const dhtRef = ref(database, 'sensorData/Dht');
+                const micRef = ref(database, 'sensorData/microphone');
+                
+                // Firebase'den tüm veriyi sil
+                await remove(dhtRef);
+                await remove(micRef);
+
+                // Silme işlemi sonrası tüm veriyi sıfırla
+                allData = { sicaklik: [], nem: [], mikrofon: [] };
+                
+                // Grafiklerdeki verileri temizle
+                Object.keys(charts).forEach(type => {
+                    if (charts[type]) {
+                        charts[type].destroy();
+                    }
+                });
+
+                alert("Veriler başarıyla silindi!");
+            } catch (error) {
+                console.error("Veri silme hatası:", error);
+                alert("Veri silinirken bir hata oluştu.");
+            }
+        };
+    </script>
+</head>
+<body>
+    <h1>Veri Grafikleri</h1>
+    <button onclick="filterData('day')">Son 1 Gün</button>
+    <button onclick="filterData('week')">Son 1 Hafta</button>
+    <button onclick="filterData('month')">Son 1 Ay</button>
+    <button onclick="filterData('all')">Tüm Veriler</button>
+    
+    <button onclick="deleteData()">Verileri Sil</button>
+
+    <div class="charts-wrapper">
+        <div class="chart-container">
+            <h2>Sıcaklık Grafiği</h2>
+            <canvas id="sicaklikChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>Nem Grafiği</h2>
+            <canvas id="nemChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>Mikrofon Aktivite Grafiği</h2>
+            <canvas id="mikrofonChart"></canvas>
+        </div>
+    </div>
+    
+</body>
+</html>

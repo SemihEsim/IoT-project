@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP8266 IoT Dashboard</title>
+  <style> 
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f4f4;
+      color: #333;
+    }
+    header {
+      background: #007bff;
+      color: white;
+      padding: 15px;
+      text-align: center;
+    }
+    .container {
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-wrap: wrap;
+    }
+    .card {
+      flex: 1 1 40%;
+      margin: 2%;
+      padding: 15px;
+      text-align: center;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    .card h2 {
+      margin: 10px 0;
+      font-size: 1.5em;
+    }
+    .notifications-box {
+      flex: 1 1 40%;
+      margin: 2%;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    .notifications-box h2 {
+      margin-bottom: 15px;
+    }
+    .notification {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      margin-bottom: 5px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .notification span {
+      font-size: 0.9em;
+      color: #666;
+    }
+    .camera-section {
+      text-align: center;
+      margin-top: 20px;
+      flex-basis: 100%;
+    }
+    .camera-section button {
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .camera-section button:hover {
+      background: #0056b3;
+    }
+    footer {
+      text-align: center;
+      margin-top: 20px;
+      padding: 10px;
+      background: #333;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ESP8266 IoT Dashboard</h1>
+    <p>Real-time Monitoring and Control</p>
+  </header>
+  <div class="container">
+    <!-- Sensor Data Section -->
+    <div class="card">
+      <h2>Temperature</h2>
+      <p id="temp">Loading...</p>
+    </div>
+    <div class="card">
+      <h2>Humidity</h2>
+      <p id="humidity">Loading...</p>
+    </div>
+
+    <!-- Notification Section -->
+    <div class="notifications-box">
+      <h2>Notifications</h2>
+      <div id="notification-list">No notifications</div>
+    </div>
+
+    <!-- Camera Control Section -->
+    <div class="camera-section">
+      <video id="camera" autoplay style="display: none; width: 100%; height: auto; border: 1px solid #ddd;"></video>
+      <button onclick="startCamera()">Start Camera</button>
+      <button onclick="stopCamera()">Stop Camera</button>
+      <button onclick="window.location.href='firebasegrafik.html'">Go to Graphs</button>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import the necessary functions from the Firebase SDK
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+
+    // Your Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyA1qPNaxUuLAv9HStzSrp11-Rd1EmsfFPI",
+      authDomain: "evdekisen2.firebaseapp.com",
+      databaseURL: "https://evdekisen2-default-rtdb.firebaseio.com",
+      projectId: "evdekisen2",
+      storageBucket: "evdekisen2.firebasestorage.app",
+      messagingSenderId: "372752549343",
+      appId: "1:372752549343:web:005b700c4e9b2224c1f06a"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // Listen for changes in the temperature and humidity
+    const tempRef = ref(database, 'sensor/temperature');
+    onValue(tempRef, (snapshot) => {
+      const temp = snapshot.val();
+      document.getElementById('temp').innerText = `${temp} °C`;
+    });
+
+    const humidityRef = ref(database, 'sensor/humidity');
+    onValue(humidityRef, (snapshot) => {
+      const humidity = snapshot.val();
+      document.getElementById('humidity').innerText = `${humidity} %`;
+    });
+
+    // Notifications with timestamp
+    const notificationsRef = ref(database, 'sensorData/microphone');
+    onValue(notificationsRef, (snapshot) => {
+      const notifications = snapshot.val();
+      const notificationList = document.getElementById('notification-list');
+      notificationList.innerHTML = '';
+
+      if (notifications) {
+        const keys = Object.keys(notifications).slice(-4); // Get the last 4 notifications
+        keys.forEach((key) => {
+          const notification = notifications[key];
+          const date = new Date(key);
+          const formattedTime = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+
+          const notificationDiv = document.createElement('div');
+          notificationDiv.className = 'notification';
+          notificationDiv.innerHTML = `<div>${notification.notification}</div><span>${formattedTime}</span>`;
+
+          notificationList.appendChild(notificationDiv);
+        });
+      } else {
+        notificationList.innerText = 'No notifications';
+      }
+    });
+
+    // Camera control
+    let cameraStream;
+
+    window.startCamera = function () { // Global olarak erişilebilir hale getirildi
+      const video = document.getElementById('camera');
+      if (cameraStream) {
+        console.log("Kamera zaten çalışıyor.");
+        return; // Kamera zaten açıksa tekrar açma
+      }
+
+      video.style.display = 'block';
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          cameraStream = stream; // Kamera akışını kaydet
+          video.srcObject = stream;
+        })
+        .catch(err => {
+          console.error("Camera error: ", err);
+          alert("Kamera açılamadı. Tarayıcı izinlerini kontrol edin.");
+        });
+    };
+
+    window.stopCamera = function () { // Global olarak erişilebilir hale getirildi
+      const video = document.getElementById('camera');
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop()); // Kamera akışını durdur
+        cameraStream = null;
+        video.style.display = 'none'; // Videoyu gizle
+      }
+    };
+  </script>
+</body>
+</html>
